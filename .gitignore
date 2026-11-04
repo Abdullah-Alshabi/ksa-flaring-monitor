@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# project
+*.xlsx
+*.csv
+!dbt_seeds/*.csv
+.env
