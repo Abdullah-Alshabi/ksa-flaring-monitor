@@ -1,0 +1,22 @@
+# Cloud Build: builds the extractor container on every push to main that touches extractor/,
+# and stores it in Artifact Registry (repository: tuwaiqpipeline).
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_IMAGE}:${SHORT_SHA}
+      - -t
+      - ${_IMAGE}:latest
+      - extractor
+
+images:
+  - ${_IMAGE}:${SHORT_SHA}
+  - ${_IMAGE}:latest
+
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/${PROJECT_ID}/tuwaiqpipeline/firms-extractor
+
+options:
+  logging: CLOUD_LOGGING_ONLY   # required when the trigger runs as a custom service account
+  dynamicSubstitutions: true
