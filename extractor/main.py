@@ -34,7 +34,10 @@ BUCKET = os.environ.get("BUCKET", f"{PROJECT}-raw")
 FIRMS_KEY = os.environ.get("FIRMS_KEY", "").strip()  # injected from Secret Manager
 NRT_SOURCES = os.environ.get("NRT_SOURCES", "VIIRS_NOAA20_NRT,VIIRS_NOAA21_NRT").split(",")
 SP_SOURCES = os.environ.get("SP_SOURCES", "VIIRS_NOAA20_SP").split(",")
-COUNTRY = "SAU"
+# Bounding box around Saudi Arabia (west,south,east,north). It also covers parts of
+# neighbouring countries; silver clips every detection to the Saudi border polygon.
+# (The FIRMS country endpoint answers "Invalid API call." for this key, so area is used.)
+BBOX = os.environ.get("BBOX", "34.5,16.3,55.7,32.2")
 BACKFILL_START = os.environ.get("BACKFILL_START", "2024-01-01")
 DATAFORM_REPO = os.environ.get("DATAFORM_REPO", "")  # e.g. ksa-flaring-monitor; empty = skip
 DATAFORM_BRANCH = os.environ.get("DATAFORM_BRANCH", "main")
@@ -108,7 +111,6 @@ def fetch(url, what, timeout=120):
             error("fetch failed", what=what, attempt=attempt, error=msg)
             if "HTTP 4" in msg and "HTTP 429" not in msg:
                 break  # a client error will not fix itself on retry
-
             time.sleep(10 * attempt)
     raise RuntimeError(f"fetch failed after 3 attempts: {what}")
 
@@ -255,8 +257,8 @@ def ingest_firms_csv(product, source, body, request_desc):
 
 
 def firms_area(source, day_range, date=None):
-    path = f"country/csv/{FIRMS_KEY}/{source}/{COUNTRY}/{day_range}" + (f"/{date}" if date else "")
-    desc = f"country/csv/{source}/{COUNTRY}/{day_range}" + (f"/{date}" if date else "")
+    path = f"area/csv/{FIRMS_KEY}/{source}/{BBOX}/{day_range}" + (f"/{date}" if date else "")
+    desc = f"area/csv/{source}/{BBOX}/{day_range}" + (f"/{date}" if date else "")
     return fetch(f"{FIRMS_API}/{path}", desc), desc
 
 
