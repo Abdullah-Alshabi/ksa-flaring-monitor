@@ -99,11 +99,16 @@ def fetch(url, what, timeout=120):
     for attempt in range(1, 4):
         try:
             r = http.get(url, timeout=timeout)
-            r.raise_for_status()
+            if r.status_code >= 400:
+                # keep the server's own explanation (FIRMS puts it in the body)
+                raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
             return r.content
         except Exception as e:  # noqa: BLE001
             msg = str(e).replace(FIRMS_KEY, "***") if FIRMS_KEY else str(e)
             error("fetch failed", what=what, attempt=attempt, error=msg)
+            if "HTTP 4" in msg and "HTTP 429" not in msg:
+                break  # a client error will not fix itself on retry
+
             time.sleep(10 * attempt)
     raise RuntimeError(f"fetch failed after 3 attempts: {what}")
 
