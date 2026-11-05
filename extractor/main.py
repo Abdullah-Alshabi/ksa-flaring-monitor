@@ -128,24 +128,24 @@ def ensure_tables():
     ]
     firms_cols = sorted(FIRMS_KNOWN)
     firms_schema = [bigquery.SchemaField(c, "STRING") for c in firms_cols] + [
-        bigquery.SchemaField("_run_id", "STRING"),
-        bigquery.SchemaField("_source", "STRING"),
-        bigquery.SchemaField("_product", "STRING"),
-        bigquery.SchemaField("_file_uri", "STRING"),
-        bigquery.SchemaField("_sha256", "STRING"),
-        bigquery.SchemaField("_row_num", "INT64"),
-        bigquery.SchemaField("_ingested_at", "TIMESTAMP"),
+        bigquery.SchemaField("ingest_run_id", "STRING"),
+        bigquery.SchemaField("ingest_source", "STRING"),
+        bigquery.SchemaField("ingest_product", "STRING"),
+        bigquery.SchemaField("ingest_file_uri", "STRING"),
+        bigquery.SchemaField("ingest_sha256", "STRING"),
+        bigquery.SchemaField("ingest_row_num", "INT64"),
+        bigquery.SchemaField("ingest_at", "TIMESTAMP"),
     ]
     wb_schema = [bigquery.SchemaField(c, "STRING") for c in [
         "id", "lat", "lon", "Country", "BCM", "MMSCFD", "Year", "Field_type", "Operator",
         "Field_name", "Location", "Flare_Level"]] + [
-        bigquery.SchemaField("_file_uri", "STRING"),
-        bigquery.SchemaField("_sha256", "STRING"),
-        bigquery.SchemaField("_ingested_at", "TIMESTAMP"),
+        bigquery.SchemaField("ingest_file_uri", "STRING"),
+        bigquery.SchemaField("ingest_sha256", "STRING"),
+        bigquery.SchemaField("ingest_at", "TIMESTAMP"),
     ]
     for table_id, schema, part in [(MANIFEST, manifest_schema, "ingested_at"),
-                                   (BRONZE_FIRMS, firms_schema, "_ingested_at"),
-                                   (BRONZE_WB, wb_schema, "_ingested_at")]:
+                                   (BRONZE_FIRMS, firms_schema, "ingest_at"),
+                                   (BRONZE_WB, wb_schema, "ingest_at")]:
         t = bigquery.Table(table_id, schema=schema)
         t.time_partitioning = bigquery.TimePartitioning(field=part)
         bq.create_table(t, exists_ok=True)
@@ -162,9 +162,10 @@ def record(**row):
     row.setdefault("run_id", RUN_ID)
     row.setdefault("mode", MODE)
     row["ingested_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
-    errors = bq.insert_rows_json(MANIFEST, [row])
-    if errors:
-        error("manifest insert failed", errors=errors)
+    # A load job (not a streaming insert): free, and works right after the table is created.
+    cfg = bigquery.LoadJobConfig(source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+                                 write_disposition="WRITE_APPEND")
+    bq.load_table_from_json([row], MANIFEST, job_config=cfg).result()
     info("manifest", **{k: v for k, v in row.items() if k != "ingested_at"})
 
 
@@ -236,8 +237,8 @@ def ingest_firms_csv(product, source, body, request_desc):
         if len(vals) != len(header):
             continue  # counted below as dropped
         r = dict(zip(header, (v.strip() for v in vals)))
-        r.update(_run_id=RUN_ID, _source=source, _product=product, _file_uri=file_uri,
-                 _sha256=sha, _row_num=i, _ingested_at=now)
+        r.update(ingest_run_id=RUN_ID, ingest_source=source, ingest_product=product, ingest_file_uri=file_uri,
+                 ingest_sha256=sha, ingest_row_num=i, ingest_at=now)
         rows.append(r)
     if not rows:
         record(**base, row_count=0, status="empty", detail="valid response with no detections")
@@ -264,7 +265,7 @@ def availability():
 
 def loaded_sp_dates(source):
     q = (f"SELECT DISTINCT acq_date FROM `{BRONZE_FIRMS}` "
-         f"WHERE _product = 'sp' AND _source = @s")
+         f"WHERE ingest_product = 'sp' AND ingest_source = @s")
     job = bq.query(q, job_config=bigquery.QueryJobConfig(
         query_parameters=[bigquery.ScalarQueryParameter("s", "STRING", source)]))
     return {r.acq_date for r in job.result()}
@@ -348,7 +349,7 @@ def run_wb_sites():
         if vals[idx["Country"]] != "Saudi Arabia":
             continue
         r = {rename.get(c, c): (None if vals[i] is None else str(vals[i])) for c, i in idx.items()}
-        r.update(_file_uri=file_uri, _sha256=sha, _ingested_at=now)
+        r.update(ingest_file_uri=file_uri, ingest_sha256=sha, ingest_at=now)
         rows.append(r)
     n = load_rows(BRONZE_WB, rows, sha, "wb")
     record(**base, row_count=len(rows), status="loaded" if n >= 0 else "duplicate", detail="Saudi rows only")
